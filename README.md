@@ -1,4 +1,4 @@
-# BEQ-BBR
+# BEQ-bbr
 
 Official implementation of **BEQ: Behaviour Evidence Querying with Asymmetric Learning for Bodily Behaviour Recognition**.
 
