@@ -1,0 +1,12 @@
+torch
+transformers
+accelerate
+peft
+qwen-vl-utils
+deepspeed
+pandas
+numpy
+scikit-learn
+tqdm
+PyYAML
+safetensors

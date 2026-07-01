@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime artifacts
+outputs/
+submissions/
+checkpoints/
+wandb/
+logs/
+
+# Local data and model weights
+dataset/
+models/
+*.mp4
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+
+# Archives and large generated files
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z

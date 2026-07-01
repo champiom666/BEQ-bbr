@@ -1,0 +1,105 @@
+# BEQ + LTAL: full model from the paper.
+# Behaviour Evidence Querying decoder + Long-tail Aware Asymmetric Learning.
+
+
+model:
+  # Local path or HuggingFace repo id for Qwen3-VL-30B-A3B-Instruct.
+  # You can also override this at runtime with BEQ_BACKBONE_PATH.
+  backbone_path: "./models/Qwen3-VL-30B-A3B-Instruct"
+  model_class: "Qwen3VLMoeForConditionalGeneration"
+  trust_remote_code: true
+  torch_dtype: "bfloat16"
+  attn_implementation: "sdpa"
+  device_map: "balanced"
+  max_memory:
+    0: "72GiB"
+    1: "76GiB"
+    2: "76GiB"
+    3: "76GiB"
+  gradient_checkpointing: false
+  apply_lora: true
+  head_dropout: 0.2
+
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+  print_trainable_parameters: true
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+    - "attn.qkv"
+    - "attn.proj"
+    - "mlp.fc1"
+    - "mlp.fc2"
+
+
+video:
+  # Frontal view only. Use [0, 1, 2] or --views 012 for all synchronized views.
+  views: [0]
+  num_frames: 12
+  fps: 8
+  # 512 x 512 = 262144 pixels.
+  max_pixels: 262144
+  add_vision_id: true
+
+
+beq:
+  query_init: "semantic"
+  behaviour_text_style: "name_description"
+  decoder_dim: 512
+  num_cross_attn_layers: 1
+  cross_attn_heads: 8
+  ffn_mult: 4.0
+  dropout: 0.2
+  label_correlation_layers: 1
+  label_correlation_heads: 4
+  head_hidden_dim: 0
+  fallback_to_attention_mask: true
+  visual_token_candidates:
+    - "<|video_pad|>"
+    - "<|image_pad|>"
+    - "<|vision_pad|>"
+
+
+loss:
+  name: "asl"
+  gamma_pos: 0.0
+  gamma_neg: 4.0
+  clip: 0.05
+  eps: 1.0e-8
+  class_balance:
+    enabled: true
+    beta: 0.9999
+    strength: 0.5
+    min_weight: 0.2
+    max_weight: 3.0
+  rare_positive_sampling:
+    enabled: true
+    strength: 0.5
+    cap: 3.0
+
+train:
+  output_dir: "outputs/acm_mm_bbr/beq_ltal"
+  seed: 42
+  device: "cuda"
+  epochs: 5
+  skip_eval: false
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  lr: 0.0001
+  weight_decay: 0.1
+  grad_clip: 1.0
+  num_workers: 0
+
+eval:
+  batch_size: 4
+  num_workers: 0
