@@ -98,15 +98,18 @@ python infer_beq.py \
   --output-csv submissions/beq_ltal_test.csv
 ```
 
-Validation is enabled by default and the best checkpoint is selected by validation mAP. To re-run validation only:
+Validation runs after each training epoch by default (`train.skip_eval: false`), and the best checkpoint is selected by validation mAP. The saved best checkpoint already contains its validation prediction at `best-checkpoint/predictions_val.csv`.
+
+To re-run validation from the saved checkpoint, write the refreshed prediction to a separate directory:
 
 ```bash
 python train_beq.py \
   --config configs/beq_ltal.yaml \
   --eval-only \
-  --checkpoint-dir outputs/acm_mm_bbr/beq_ltal/best-checkpoint
+  --checkpoint-dir outputs/acm_mm_bbr/beq_ltal/best-checkpoint \
+  --output-dir outputs/acm_mm_bbr/beq_ltal/eval-best
 
-python evaluate_bbr.py --prediction outputs/acm_mm_bbr/beq_ltal/best-checkpoint/predictions_val.csv
+python evaluate_bbr.py --prediction outputs/acm_mm_bbr/beq_ltal/eval-best/predictions_val.csv
 ```
 
 See [RUNNING.md](RUNNING.md) for a more detailed running guide.
