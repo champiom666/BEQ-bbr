@@ -3,10 +3,9 @@
 Reference implementation for **BEQ: Behaviour Evidence Querying with Long-tail
 Aware Asymmetric Learning for Bodily Behaviour Recognition**.
 
-This repository contains the cleaned code release for the MultiMediate
-**Bodily Behaviour Recognition (BBR)** task on the MPIIGroupInteraction
-dataset. BBR is a 14-class multi-label video classification task evaluated
-with category-wise macro-mAP.
+The code targets the MultiMediate **Bodily Behaviour Recognition (BBR)** task
+on the MPIIGroupInteraction dataset. BBR is a 14-class multi-label video
+classification task evaluated with category-wise macro-mAP.
 
 ## Method
 
@@ -21,45 +20,12 @@ core components:
   number based positive reweighting, and rare-positive sampling for the
   long-tailed multi-label distribution.
 
-## Repository Layout
-
-```text
-.
-├── beq/                         # core package
-│   ├── constants.py             # label order, paths, view definitions
-│   ├── config.py                # YAML config helpers
-│   ├── data.py                  # BBRDataset and Qwen-VL collators
-│   ├── modeling.py              # LVLM baseline, LoRA, backbone loading
-│   ├── decoder.py               # BEQ classifier and decoder
-│   ├── behaviour_descriptions.py# semantic query descriptions
-│   ├── losses.py                # ASL, class-balanced weights, sampling
-│   ├── evaluator.py             # local macro-mAP evaluator
-│   └── utils.py
-├── configs/
-│   ├── beq_ltal.yaml            # BEQ + LTAL, single-process/device_map config
-│   ├── beq_ltal_deepspeed.yaml  # BEQ + LTAL, multi-GPU DeepSpeed config
-│   ├── deepspeed_zero2_bf16.json
-│   └── deepspeed_zero3_bf16.json
-├── sample_lists/                # train/val sample ids and labels
-├── train_beq.py
-├── train_beq_deepspeed.py
-├── train_baseline.py
-├── train_baseline_deepspeed.py
-├── infer_beq.py
-├── infer_baseline.py
-├── evaluate_bbr.py
-└── convert_zero3_to_lora_checkpoint.py
-```
-
 The 14 labels follow the official CSV order: `Settle`, `Legs crossed`,
 `Groom`, `Hand-mouth`, `Fold arms`, `Leg movement`, `Scratch`, `Gesture`,
 `Hand-face`, `Adjusting clothing`, `Fumble`, `Shrug`, `Stretching`, and
 `Smearing hands`.
 
 ## Data and Weights
-
-This release contains code, configs, and sample-id/label lists only. It does
-not include MPIIGroupInteraction video clips or Qwen/model checkpoints.
 
 By default, the code looks for clips under:
 
@@ -86,7 +52,7 @@ pip install -r requirements.txt
 ```
 
 Install the PyTorch build that matches your CUDA driver if the default wheel
-is not suitable. `flash-attn` is optional; the provided configs use `sdpa`.
+is not suitable. `flash-attn` is optional; the training configs use `sdpa`.
 
 ## Quick Start
 
@@ -110,13 +76,13 @@ CUDA_VISIBLE_DEVICES=0 python train_beq.py \
   --max-pixels 262144
 ```
 
-Train BEQ + LTAL for 5 epochs:
+Train BEQ + LTAL:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 python train_beq.py --config configs/beq_ltal.yaml
 ```
 
-DeepSpeed training for 5 epochs:
+DeepSpeed training:
 
 ```bash
 deepspeed --num_gpus=4 train_beq_deepspeed.py --config configs/beq_ltal_deepspeed.yaml
@@ -144,15 +110,6 @@ python evaluate_bbr.py --prediction outputs/acm_mm_bbr/beq_ltal/best-checkpoint/
 ```
 
 See [RUNNING.md](RUNNING.md) for a more detailed running guide.
-
-## Configs
-
-This release keeps only the final BEQ + LTAL training configs:
-
-| Config | Use |
-| --- | --- |
-| `configs/beq_ltal.yaml` | Single-process / `device_map` training and inference |
-| `configs/beq_ltal_deepspeed.yaml` | Multi-GPU DeepSpeed training |
 
 ## Checkpoint Format
 

@@ -1,6 +1,6 @@
 # Running Guide
 
-This guide describes how to reproduce the experiments and generate a BBR submission file. All commands are intended to be run from the repository root.
+This guide describes how to train BEQ and generate a BBR submission file. All commands are intended to be run from the repository root.
 
 ## 1. Environment Setup
 
@@ -12,11 +12,11 @@ conda activate beq-bbr
 pip install -r requirements.txt
 ```
 
-If the default PyTorch wheel does not match your server's CUDA version, install the appropriate `torch` build first, then install the remaining packages from `requirements.txt`. `flash-attn` is optional; the provided configs use `sdpa` attention by default.
+If the default PyTorch wheel does not match your server's CUDA version, install the appropriate `torch` build first, then install the remaining packages from `requirements.txt`. `flash-attn` is optional; the configs use `sdpa` attention by default.
 
 ## 2. Model and Data Preparation
 
-This repository does not include video data or Qwen3-VL weights. Set the paths with environment variables:
+Set the video data and Qwen3-VL checkpoint paths with environment variables:
 
 ```bash
 export BEQ_BACKBONE_PATH=/path/to/Qwen3-VL-30B-A3B-Instruct
@@ -62,15 +62,15 @@ CUDA_VISIBLE_DEVICES=0 python train_beq.py \
 
 If successful, the resolved config and validation-selected checkpoint will be written under `outputs/acm_mm_bbr/beq_ltal/`.
 
-## 4. Train the Final BEQ + LTAL Model
+## 4. Train BEQ + LTAL
 
-Single-process / `device_map` training for 5 epochs:
+Single-process / `device_map` training:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 python train_beq.py --config configs/beq_ltal.yaml
 ```
 
-DeepSpeed training for 5 epochs:
+DeepSpeed training:
 
 ```bash
 deepspeed --num_gpus=4 train_beq_deepspeed.py --config configs/beq_ltal_deepspeed.yaml
@@ -82,21 +82,7 @@ If GPU memory is insufficient, first reduce these parameters:
 --batch-size 2 --gradient-accumulation-steps 8
 ```
 
-## 5. Config Files
-
-The `configs/` directory keeps only the two final BEQ + LTAL YAML configs:
-
-```text
-configs/
-├── beq_ltal.yaml
-├── beq_ltal_deepspeed.yaml
-├── deepspeed_zero2_bf16.json
-└── deepspeed_zero3_bf16.json
-```
-
-Use `configs/beq_ltal.yaml` for regular training and inference. Use `configs/beq_ltal_deepspeed.yaml` for multi-GPU DeepSpeed training.
-
-## 6. Validation Evaluation
+## 5. Validation Evaluation
 
 Validation is enabled by default (`skip_eval: false`), and the best checkpoint is selected by validation mAP. To re-run validation only, use:
 
@@ -111,7 +97,7 @@ python evaluate_bbr.py \
   --prediction outputs/acm_mm_bbr/beq_ltal/best-checkpoint/predictions_val.csv
 ```
 
-## 7. Generate the Test Submission File
+## 6. Generate the Test Submission File
 
 Run inference from the validation-selected BEQ checkpoint:
 
@@ -125,7 +111,7 @@ python infer_beq.py \
 
 The output CSV follows the official 14-label column order. The first column is `sample_id`, followed by one probability column per class.
 
-## 8. Checkpoint Layout
+## 7. Checkpoint Layout
 
 The best BEQ checkpoint is saved under the training output directory:
 

@@ -2,8 +2,8 @@
 """Train the Behaviour Evidence Querying (BEQ) decoder with DeepSpeed.
 
 This is the multi-GPU trainer used for the 4x A800 setup reported in the paper.
-Combine it with an ``asl`` loss + class-balanced reweighting to train the full
-"BEQ + LTAL" model.
+Combine it with an ``asl`` loss + class-balanced reweighting + rare-positive
+sampling to train the full "BEQ + LTAL" model.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import pandas as pd
 import torch
 import torch.distributed as dist
 from torch.optim import AdamW
-from torch.utils.data import ConcatDataset, DataLoader, Dataset, DistributedSampler, Subset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, DistributedSampler, Sampler, Subset
 from tqdm.auto import tqdm
 from transformers.integrations import HfDeepSpeedConfig
 
@@ -35,7 +35,7 @@ from beq.data import BBRDataset, BEQVideoCollator, parse_view_spec
 from beq.decoder import BEQClassifier, build_behaviour_query_init
 from beq.behaviour_descriptions import build_behaviour_texts
 from beq.evaluator import evaluate
-from beq.losses import compute_effective_number_weights
+from beq.losses import compute_effective_number_weights, compute_rare_positive_sampling_weights
 from beq.modeling import get_hidden_size, load_vlm_and_processor
 from beq.utils import move_to_device, save_json, set_seed, write_prediction_csv
 
@@ -85,6 +85,46 @@ def is_rank0() -> bool:
 def rank0_print(*args: object, **kwargs: object) -> None:
     if is_rank0():
         print(*args, **kwargs)
+
+
+class DistributedWeightedRandomSampler(Sampler[int]):
+    """Weighted sampler that draws one shared replacement sample per epoch."""
+
+    def __init__(
+        self,
+        weights: np.ndarray,
+        num_replicas: int,
+        rank: int,
+        seed: int = 42,
+    ) -> None:
+        self.weights = torch.as_tensor(weights, dtype=torch.double)
+        if self.weights.ndim != 1:
+            raise ValueError(f"weights must be 1D, got shape {tuple(self.weights.shape)}")
+        if self.weights.numel() == 0:
+            raise ValueError("weights must be non-empty")
+        self.num_replicas = int(num_replicas)
+        self.rank = int(rank)
+        self.seed = int(seed)
+        self.epoch = 0
+        self.num_samples = int(np.ceil(self.weights.numel() / self.num_replicas))
+        self.total_size = self.num_samples * self.num_replicas
+
+    def __iter__(self):
+        generator = torch.Generator()
+        generator.manual_seed(self.seed + self.epoch)
+        indices = torch.multinomial(
+            self.weights,
+            self.total_size,
+            replacement=True,
+            generator=generator,
+        ).tolist()
+        return iter(indices[self.rank : self.total_size : self.num_replicas])
+
+    def __len__(self) -> int:
+        return self.num_samples
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
 
 
 def barrier() -> None:
@@ -182,11 +222,15 @@ def build_training_dataset(
     return dataset, rows
 
 
-def configure_class_balanced_loss(model: BEQClassifier, train_rows: pd.DataFrame | None, cfg: dict[str, Any]) -> None:
+def configure_class_balanced_loss(
+    model: BEQClassifier,
+    train_rows: pd.DataFrame | None,
+    cfg: dict[str, Any],
+) -> np.ndarray | None:
     loss_cfg = cfg.get("loss") or {}
     class_balance = loss_cfg.get("class_balance") or {}
     if not class_balance.get("enabled", False) or train_rows is None:
-        return
+        return None
 
     counts = train_rows[LABEL_COLUMNS].sum(axis=0).to_numpy(dtype=np.float64)
     weights = compute_effective_number_weights(
@@ -200,6 +244,43 @@ def configure_class_balanced_loss(model: BEQClassifier, train_rows: pd.DataFrame
     table = pd.DataFrame({"label": LABEL_COLUMNS, "positive_count": counts.astype(int), "pos_weight": weights})
     rank0_print("class-balanced positive weights:")
     rank0_print(table.to_string(index=False))
+    return weights
+
+
+def build_train_sampler(
+    train_ds: Dataset,
+    train_rows: pd.DataFrame | None,
+    class_weights: np.ndarray | None,
+    cfg: dict[str, Any],
+) -> Sampler[int] | None:
+    if train_rows is None:
+        return None
+
+    loss_cfg = cfg.get("loss") or {}
+    rps_cfg = loss_cfg.get("rare_positive_sampling") or {}
+    if rps_cfg.get("enabled", False) and class_weights is not None:
+        label_matrix = train_rows[LABEL_COLUMNS].to_numpy(dtype=np.float64)
+        sample_weights = compute_rare_positive_sampling_weights(
+            label_matrix,
+            class_weights,
+            strength=float(rps_cfg.get("strength", 1.0)),
+            cap=float(rps_cfg.get("cap", 5.0)),
+        )
+        rank0_print(f"rare-positive sampling enabled: weight range [{sample_weights.min():.3f}, {sample_weights.max():.3f}]")
+        return DistributedWeightedRandomSampler(
+            sample_weights,
+            num_replicas=get_world_size(),
+            rank=get_rank(),
+            seed=int(cfg["train"].get("seed", 42)),
+        )
+
+    return DistributedSampler(
+        train_ds,
+        num_replicas=get_world_size(),
+        rank=get_rank(),
+        shuffle=True,
+        drop_last=False,
+    )
 
 
 def build_model(vlm, processor, cfg: dict[str, Any]) -> tuple[BEQClassifier, list[str]]:
@@ -385,16 +466,12 @@ def main() -> None:
         fallback_to_attention_mask=bool((cfg.get("beq") or {}).get("fallback_to_attention_mask", True)),
     )
 
+    class_weights = configure_class_balanced_loss(model, train_rows, cfg)
+
     train_loader = None
     train_sampler = None
     if train_ds is not None:
-        train_sampler = DistributedSampler(
-            train_ds,
-            num_replicas=get_world_size(),
-            rank=get_rank(),
-            shuffle=True,
-            drop_last=False,
-        )
+        train_sampler = build_train_sampler(train_ds, train_rows, class_weights, cfg)
         train_loader = DataLoader(
             train_ds,
             batch_size=int(cfg["train"].get("batch_size", 1)),
@@ -402,7 +479,6 @@ def main() -> None:
             num_workers=int(cfg["train"].get("num_workers", 0)),
             collate_fn=collator,
         )
-    configure_class_balanced_loss(model, train_rows, cfg)
 
     val_loader = None
     val_annotation_path = SAMPLE_LIST_DIR / "val_samples.csv"
